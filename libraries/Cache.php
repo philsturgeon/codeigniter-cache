@@ -91,7 +91,7 @@ class Cache
 		return $this->_call($model, $method, $arguments, $expires);
 	}
 
-	// Depreciated, use model() or library()
+	// Deprecated, use model() or library()
 	private function _call($property, $method, $arguments = array(), $expires = NULL)
 	{
 		$this->ci->load->helper('security');
@@ -104,12 +104,14 @@ class Cache
 		// Clean given arguments to a 0-index array
 		$arguments = array_values($arguments);
 
+		// One level directory structure (property/file)
 		$cache_file = $property.DIRECTORY_SEPARATOR.dohash($method.serialize($arguments), 'sha1');
+		// Two level directory structure (property/method/file)
+//		$cache_file = $property.DIRECTORY_SEPARATOR.$method.DIRECTORY_SEPARATOR.dohash($method.serialize($arguments), 'sha1');
 
 		// See if we have this cached or delete if $expires is negative
 		if($expires >= 0)
 		{
-			echo "caching ".$cache_file;
 			$cached_response = $this->get($cache_file);
 		}
 		else
@@ -118,14 +120,17 @@ class Cache
 			return;
 		}
 
-		// Not FALSE? Return it
-		if($cached_response)
+		// Was cached?
+		if($cached_response['status'] === 'cached')
 		{
-			return $cached_response;
+			return $cached_response['content'];
 		}
 
 		else
 		{
+			// Log error message if any
+			log_message('debug', "Nothing cached: ".$cached_response['status']);
+
 			// Call the model or library with the method provided and the same arguments
 			$new_response = call_user_func_array(array($this->ci->$property, $method), $arguments);
 			$this->write($new_response, $cache_file, $expires);
@@ -187,22 +192,25 @@ class Cache
 		// Check directory permissions
 		if ( ! is_dir($this->path) OR ! is_really_writable($this->path))
 		{
-			return FALSE;
+			// Separate error message and content to make sure the calling function knows this is not a result
+			return array('content' => NULL, 'status' => 'path not writable');
 		}
 
 		// Build the file path.
 		$filepath = $this->path.$this->filename.'.cache';
 
-		// Check if the cache exists, if not return FALSE
+		// Check if the cache exists, if not return 'not cached' status
 		if ( ! @file_exists($filepath))
 		{
-			return FALSE;
+			// Separate status message and content to make sure the calling function knows this is not a result
+			return array('content' => NULL, 'status' => 'not cached');
 		}
 
 		// Check if the cache can be opened, if not return FALSE
 		if ( ! $fp = @fopen($filepath, FOPEN_READ))
 		{
-			return FALSE;
+			// Separate error message and content to make sure the calling function knows this is not a result
+			return array('content' => NULL, 'status' => "cache-file can't be opened");
 		}
 
 		// Lock the cache
@@ -226,7 +234,7 @@ class Cache
 		if ($use_expires && ! empty($this->contents['__cache_expires']) && $this->contents['__cache_expires'] < time())
 		{
 			$this->delete($filename);
-			return FALSE;
+			return array('content' => NULL, 'status' => "cache-file expired");
 		}
 
 		// Check Cache dependencies
@@ -240,7 +248,7 @@ class Cache
 				if (! file_exists($this->path.$dep.'.cache') or filemtime($this->path.$dep.'.cache') > $cache_created)
 				{
 					$this->delete($filename);
-					return FALSE;
+					return array('content' => NULL, 'status' => "dependency missing or out of date");
 				}
 			}
 		}
@@ -254,8 +262,8 @@ class Cache
 		$this->contents = @$this->contents['__cache_contents'];
 
 		// Return the cache
-		log_message('debug', "Cache retrieved: ".$filename);
-		return $this->contents;
+		//log_message('debug', "Cache retrieved: " . $filename);
+		return array('content' => $this->contents, 'status' => "cached");
 	}
 
 	/**
